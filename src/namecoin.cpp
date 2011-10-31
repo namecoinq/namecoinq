@@ -149,19 +149,11 @@ string stringFromVch(vector<unsigned char> vch) {
 }
 
 // Increase expiration to 36000 gradually starting at block 24000.
-// Use for validation purposes and pass the chain height.
 int GetExpirationDepth(int nHeight) {
     if (nHeight < 24000)
         return 12000;
-    if (nHeight < 48000)
-        return nHeight - 12000;
-    return 36000;
-}
-
-// For display purposes, pass the name height.
-int GetDisplayExpirationDepth(int nHeight) {
-    if (nHeight < 24000)
-        return 12000;
+    //if (nHeight < 48000)
+    //    return 24000;
     return 36000;
 }
 
@@ -461,7 +453,7 @@ bool GetTxOfName(CNameDB& dbName, vector<unsigned char> vchName, CTransaction& t
         return false;
     CDiskTxPos& txPos = vtxPos.back();
     int nHeight = GetTxPosHeight(txPos);
-    if (nHeight + GetExpirationDepth(pindexBest->nHeight) < pindexBest->nHeight)
+    if (nHeight + GetExpirationDepth(nHeight) < pindexBest->nHeight)
     {
         string name = stringFromVch(vchName);
         printf("GetTxOfName(%s) : expired", name.c_str());
@@ -520,7 +512,7 @@ Value name_list(const Array& params, bool fHelp)
                 oName.push_back(Pair("value", value));
                 if (!hooks->IsMine(pwalletMain->mapWallet[hash]))
                     oName.push_back(Pair("transferred", 1));
-                oName.push_back(Pair("expires_in", nHeight + GetDisplayExpirationDepth(nHeight) - pindexBest->nHeight));
+                oName.push_back(Pair("expires_in", nHeight + GetExpirationDepth(nHeight) - pindexBest->nHeight));
                 int op;
                 int nOut;
                 vector<vector<unsigned char> > vvch;
@@ -642,7 +634,7 @@ Value name_history(const Array& params, bool fHelp)
                 string value = stringFromVch(vchValue);
                 oName.push_back(Pair("value", value));
                 oName.push_back(Pair("txid", tx.GetHash().GetHex()));
-                oName.push_back(Pair("expires_in", nHeight + GetDisplayExpirationDepth(nHeight) - pindexBest->nHeight));
+                oName.push_back(Pair("expires_in", nHeight + GetExpirationDepth(nHeight) - pindexBest->nHeight));
                 int op;
                 int nOut;
                 vector<vector<unsigned char> > vvch;
@@ -701,7 +693,7 @@ Value name_scan(const Array& params, bool fHelp)
             string value = stringFromVch(vchValue);
             oName.push_back(Pair("value", value));
             oName.push_back(Pair("txid", hash.GetHex()));
-            oName.push_back(Pair("expires_in", nHeight + GetDisplayExpirationDepth(nHeight) - pindexBest->nHeight));
+            oName.push_back(Pair("expires_in", nHeight + GetExpirationDepth(nHeight) - pindexBest->nHeight));
             int op;
             int nOut;
             vector<vector<unsigned char> > vvch;
@@ -1448,7 +1440,8 @@ bool IsConflictedTx(CTxDB& txdb, const CTransaction& tx, vector<unsigned char>& 
         case OP_NAME_FIRSTUPDATE:
             nPrevHeight = GetNameHeight(txdb, vvchArgs[0]);
             name = vvchArgs[0];
-            if (nPrevHeight >= 0 && pindexBest->nHeight - nPrevHeight < GetExpirationDepth(pindexBest->nHeight))
+            // name_firstupdate on an unexpired name
+            if (nPrevHeight >= 0 && pindexBest->nHeight - nPrevHeight < GetExpirationDepth(nPrevHeight))
                 return true;
     }
     return false;
@@ -1515,7 +1508,7 @@ bool CNamecoinHooks::ConnectInputs(CTxDB& txdb,
             if (!found || prevOp != OP_NAME_NEW)
                 return error("ConnectInputsHook() : name_firstupdate tx without previous name_new tx");
             nPrevHeight = GetNameHeight(txdb, vvchArgs[0]);
-            if (nPrevHeight >= 0 && pindexBlock->nHeight - nPrevHeight < GetExpirationDepth(pindexBlock->nHeight))
+            if (nPrevHeight >= 0 && pindexBlock->nHeight - nPrevHeight < GetExpirationDepth(nPrevHeight))
                 return error("ConnectInputsHook() : name_firstupdate on an unexpired name");
             nDepth = CheckTransactionAtRelativeDepth(pindexBlock, vTxindex[nInput], MIN_FIRSTUPDATE_DEPTH);
             // Do not accept if in chain and not mature
@@ -1527,7 +1520,7 @@ bool CNamecoinHooks::ConnectInputs(CTxDB& txdb,
             if (fMiner)
             {
                 // TODO CPU intensive
-                nDepth = CheckTransactionAtRelativeDepth(pindexBlock, vTxindex[nInput], GetExpirationDepth(pindexBlock->nHeight));
+                nDepth = CheckTransactionAtRelativeDepth(pindexBlock, vTxindex[nInput], GetExpirationDepth(nPrevHeight));
                 if (nDepth == -1)
                     return error("ConnectInputsHook() : name_firstupdate cannot be mined if name_new is not already in chain and unexpired");
                 // Check that no other pending txs on this name are already in the block to be mined
@@ -1548,7 +1541,8 @@ bool CNamecoinHooks::ConnectInputs(CTxDB& txdb,
             if (!found || (prevOp != OP_NAME_FIRSTUPDATE && prevOp != OP_NAME_UPDATE))
                 return error("name_update tx without previous update tx");
             // TODO CPU intensive
-            nDepth = CheckTransactionAtRelativeDepth(pindexBlock, vTxindex[nInput], GetExpirationDepth(pindexBlock->nHeight));
+            nPrevHeight = GetNameHeight(txdb, vvchArgs[0]);
+            nDepth = CheckTransactionAtRelativeDepth(pindexBlock, vTxindex[nInput], GetExpirationDepth(nPrevHeight));
             if ((fBlock || fMiner) && nDepth < 0)
                 return error("ConnectInputsHook() : name_update on an expired name, or there is a pending transaction on the name");
             break;
