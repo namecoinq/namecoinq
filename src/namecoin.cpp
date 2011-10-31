@@ -33,6 +33,7 @@ static const int OP_NAME_NEW = 0x01;
 static const int OP_NAME_FIRSTUPDATE = 0x02;
 static const int OP_NAME_UPDATE = 0x03;
 static const int OP_NAME_NOP = 0x04;
+static const int OP_MESSAGE = 0x05;
 static const int MIN_FIRSTUPDATE_DEPTH = 12;
 
 map<vector<unsigned char>, uint256> mapMyNames;
@@ -49,6 +50,8 @@ extern bool GetValueOfNameTx(const CTransaction& tx, vector<unsigned char>& valu
 extern bool IsConflictedTx(CTxDB& txdb, const CTransaction& tx, vector<unsigned char>& name);
 extern bool GetNameOfTx(const CTransaction& tx, vector<unsigned char>& name);
 bool DecodeNameTx(const CTransaction& tx, int& op, int& nOut, vector<vector<unsigned char> >& vvch);
+void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDepth, bool fLong, Array& ret);
+void AcentryToJSON(const CAccountingEntry& acentry, const string& strAccount, Array& ret);
 
 const int NAME_COIN_GENESIS_EXTRA = 521;
 uint256 hashNameCoinGenesisBlock("000000000062b72c5e2ceb45fbc8587e807c155b0da735e6483dfba2f0a9c770");
@@ -970,6 +973,121 @@ Value name_new(const Array& params, bool fHelp)
     return res;
 }
 
+Value message_send(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() != 2)
+        throw runtime_error(
+                "message_send <message> <toaddress>\n"
+                );
+
+    vector<unsigned char> vchValue = vchFromValue(params[0]);
+
+    CWalletTx wtx;
+    //wtx.nVersion = NAMECOIN_TX_VERSION;
+
+    CScript scriptPubKeyOrig;
+    string strAddress = params[1].get_str();
+    uint160 hash160;
+    bool isValid = AddressToHash160(strAddress, hash160);
+    if (!isValid)
+        throw JSONRPCError(-5, "Invalid namecoin address");
+    scriptPubKeyOrig.SetBitcoinAddress(strAddress);
+    CScript scriptPubKey;
+    scriptPubKey << OP_MESSAGE << vchValue << OP_2DROP;
+    scriptPubKey += scriptPubKeyOrig;
+
+
+    CRITICAL_BLOCK(cs_main)
+    {
+        string strError = pwalletMain->SendMoney(scriptPubKey, MIN_TX_FEE, wtx, false);
+        if (strError != "")
+            throw JSONRPCError(-4, strError);
+    }
+
+    return wtx.GetHash().GetHex();
+}
+
+Value message_list(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() > 3)
+        throw runtime_error(
+            "message_list [account] [count=10] [from=0]\n"
+            "Returns up to [count] most recent transactions skipping the first [from] transactions for account [account].");
+
+    string strAccount = "*";
+    if (params.size() > 0)
+        strAccount = params[0].get_str();
+    int nCount = 10;
+    if (params.size() > 1)
+        nCount = params[1].get_int();
+    int nFrom = 0;
+    if (params.size() > 2)
+        nFrom = params[2].get_int();
+
+    Array ret;
+    CWalletDB walletdb(pwalletMain->strWalletFile);
+
+    CRITICAL_BLOCK(pwalletMain->cs_mapWallet)
+    {
+        // Firs: get all CWalletTx and CAccountingEntry into a sorted-by-time multimap:
+        typedef pair<CWalletTx*, CAccountingEntry*> TxPair;
+        typedef multimap<int64, TxPair > TxItems;
+        TxItems txByTime;
+
+        for (map<uint256, CWalletTx>::iterator it = pwalletMain->mapWallet.begin(); it != pwalletMain->mapWallet.end(); ++it)
+        {
+            CWalletTx* wtx = &((*it).second);
+            BOOST_FOREACH(const CTxOut& txout, wtx->vout)
+            {
+                vector<vector<unsigned char> > vvch;
+                int op;
+                if (DecodeNameScript(txout.scriptPubKey, op, vvch))
+                {
+
+                    if (op == OP_MESSAGE)
+                    {
+                        txByTime.insert(make_pair(wtx->GetTxTime(), TxPair(wtx, (CAccountingEntry*)0)));
+                        break;
+                    }
+                }
+            }
+        }
+        list<CAccountingEntry> acentries;
+        walletdb.ListAccountCreditDebit(strAccount, acentries);
+        BOOST_FOREACH(CAccountingEntry& entry, acentries)
+        {
+            txByTime.insert(make_pair(entry.nTime, TxPair((CWalletTx*)0, &entry)));
+        }
+
+        // Now: iterate backwards until we have nCount items to return:
+        TxItems::reverse_iterator it = txByTime.rbegin();
+        for (std::advance(it, nFrom); it != txByTime.rend(); ++it)
+        {
+            CWalletTx *const pwtx = (*it).second.first;
+            if (pwtx != 0)
+                ListTransactions(*pwtx, strAccount, 0, true, ret);
+            CAccountingEntry *const pacentry = (*it).second.second;
+            if (pacentry != 0)
+                AcentryToJSON(*pacentry, strAccount, ret);
+
+            if (ret.size() >= nCount) break;
+        }
+        // ret is now newest to oldest
+    }
+
+    // Make sure we return only last nCount items (sends-to-self might give us an extra):
+    if (ret.size() > nCount)
+    {
+        Array::iterator last = ret.begin();
+        std::advance(last, nCount);
+        ret.erase(last, ret.end());
+    }
+    std::reverse(ret.begin(), ret.end()); // oldest to newest
+
+    return ret;
+}
+
+
 void UnspendInputs(CWalletTx& wtx)
 {
     set<CWalletTx*> setCoins;
@@ -1207,6 +1325,8 @@ CHooks* InitHook()
     mapCallTable.insert(make_pair("name_debug1", &name_debug1));
     mapCallTable.insert(make_pair("name_clean", &name_clean));
     mapCallTable.insert(make_pair("deletetransaction", &deletetransaction));
+    mapCallTable.insert(make_pair("message_send", &message_send));
+    mapCallTable.insert(make_pair("message_list", &message_list));
     hashGenesisBlock = hashNameCoinGenesisBlock;
     printf("Setup namecoin genesis block %s\n", hashGenesisBlock.GetHex().c_str());
     return new CNamecoinHooks();
@@ -1255,7 +1375,8 @@ bool DecodeNameScript(const CScript& script, int& op, vector<vector<unsigned cha
 
     if ((op == OP_NAME_NEW && vvch.size() == 1) ||
             (op == OP_NAME_FIRSTUPDATE && vvch.size() == 3) ||
-            (op == OP_NAME_UPDATE && vvch.size() == 2))
+            (op == OP_NAME_UPDATE && vvch.size() == 2) ||
+            (op == OP_MESSAGE && vvch.size() == 1))
         return true;
     return error("invalid number of arguments for name op");
 }
@@ -1341,8 +1462,8 @@ void CNamecoinHooks::AddToWallet(CWalletTx& wtx)
 
 bool CNamecoinHooks::IsMine(const CTransaction& tx)
 {
-    if (tx.nVersion != NAMECOIN_TX_VERSION)
-        return false;
+    //if (tx.nVersion != NAMECOIN_TX_VERSION)
+    //    return false;
 
     vector<vector<unsigned char> > vvch;
 
@@ -1350,6 +1471,11 @@ bool CNamecoinHooks::IsMine(const CTransaction& tx)
     int nOut;
 
     bool good = DecodeNameTx(tx, op, nOut, vvch);
+
+    if (!good && tx.nVersion != NAMECOIN_TX_VERSION)
+    {
+        return false;
+    }
 
     if (!good)
     {
@@ -1363,13 +1489,14 @@ bool CNamecoinHooks::IsMine(const CTransaction& tx)
         printf("IsMine() hook : found my transaction %s nout %d\n", tx.GetHash().GetHex().c_str(), nOut);
         return true;
     }
+
     return false;
 }
 
 bool CNamecoinHooks::IsMine(const CTransaction& tx, const CTxOut& txout)
 {
-    if (tx.nVersion != NAMECOIN_TX_VERSION)
-        return false;
+    //if (tx.nVersion != NAMECOIN_TX_VERSION)
+    //    return false;
 
     vector<vector<unsigned char> > vvch;
 
@@ -1656,14 +1783,19 @@ bool CNamecoinHooks::DisconnectInputs(CTxDB& txdb,
 
 bool CNamecoinHooks::CheckTransaction(const CTransaction& tx)
 {
-    if (tx.nVersion != NAMECOIN_TX_VERSION)
-        return true;
+    //if (tx.nVersion != NAMECOIN_TX_VERSION)
+    //    return true;
 
     vector<vector<unsigned char> > vvch;
     int op;
     int nOut;
 
     bool good = DecodeNameTx(tx, op, nOut, vvch);
+
+    if (!good && tx.nVersion != NAMECOIN_TX_VERSION)
+    {
+        return true;
+    }
 
     if (!good)
     {
@@ -1699,6 +1831,12 @@ bool CNamecoinHooks::CheckTransaction(const CTransaction& tx)
                 return error("name_update tx with value too long");
             }
             break;
+        case OP_MESSAGE:
+            if (vvch[0].size() > MAX_VALUE_LENGTH)
+            {
+                return error("message_send tx with value too long");
+            }
+            break;
         default:
             return error("name transaction has unknown op");
     }
@@ -1715,6 +1853,8 @@ static string nameFromOp(int op)
             return "name_update";
         case OP_NAME_FIRSTUPDATE:
             return "name_firstupdate";
+        case OP_MESSAGE:
+            return "message";
         default:
             return "<unknown name op>";
     }
