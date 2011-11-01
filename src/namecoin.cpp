@@ -981,6 +981,8 @@ Value message_send(const Array& params, bool fHelp)
                 );
 
     vector<unsigned char> vchValue = vchFromValue(params[0]);
+    if(vchValue.size() > MAX_VALUE_LENGTH)
+        throw JSONRPCError(-5, "Tx with message too long");
 
     CWalletTx wtx;
     //wtx.nVersion = NAMECOIN_TX_VERSION;
@@ -1783,19 +1785,14 @@ bool CNamecoinHooks::DisconnectInputs(CTxDB& txdb,
 
 bool CNamecoinHooks::CheckTransaction(const CTransaction& tx)
 {
-    //if (tx.nVersion != NAMECOIN_TX_VERSION)
-    //    return true;
+    if (tx.nVersion != NAMECOIN_TX_VERSION)
+        return true;
 
     vector<vector<unsigned char> > vvch;
     int op;
     int nOut;
 
     bool good = DecodeNameTx(tx, op, nOut, vvch);
-
-    if (!good && tx.nVersion != NAMECOIN_TX_VERSION)
-    {
-        return true;
-    }
 
     if (!good)
     {
@@ -1831,12 +1828,12 @@ bool CNamecoinHooks::CheckTransaction(const CTransaction& tx)
                 return error("name_update tx with value too long");
             }
             break;
-        case OP_MESSAGE:
-            if (vvch[0].size() > MAX_VALUE_LENGTH)
-            {
-                return error("message_send tx with value too long");
-            }
-            break;
+        //case OP_MESSAGE:
+        //    if (vvch[0].size() > MAX_VALUE_LENGTH)
+        //    {
+        //        return error("message_send tx with value too long");
+        //    }
+        //    break;
         default:
             return error("name transaction has unknown op");
     }
