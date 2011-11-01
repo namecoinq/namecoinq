@@ -1021,10 +1021,18 @@ Value message_list(const Array& params, bool fHelp)
         strAccount = params[0].get_str();
     int nCount = 10;
     if (params.size() > 1)
-        nCount = params[1].get_int();
+	{
+        Value vCount = params[1];
+        ConvertTo<double>(vCount);
+        nCount = (int)vCount.get_real();
+	}
     int nFrom = 0;
     if (params.size() > 2)
-        nFrom = params[2].get_int();
+	{
+        Value vFrom = params[2];
+        ConvertTo<double>(vFrom);
+        nFrom = (int)vFrom.get_real();
+	}
 
     Array ret;
     CWalletDB walletdb(pwalletMain->strWalletFile);
