@@ -476,6 +476,18 @@ bool GetTxOfName(CNameDB& dbName, vector<unsigned char> vchName, CTransaction& t
     return true;
 }
 
+bool GetNameAddress(const CTransaction& tx, std::string& strAddress)
+{
+    int op;
+    int nOut;
+    vector<vector<unsigned char> > vvch;
+    DecodeNameTx(tx, op, nOut, vvch);
+    const CTxOut& txout = tx.vout[nOut];
+    const CScript& scriptPubKey = RemoveNameScriptPrefix(txout.scriptPubKey);
+    strAddress = scriptPubKey.GetBitcoinAddress();
+    return true;
+}
+
 bool GetNameAddress(const CDiskTxPos& txPos, std::string& strAddress)
 {
     CTransaction tx;
@@ -992,7 +1004,21 @@ Value message_send(const Array& params, bool fHelp)
     uint160 hash160;
     bool isValid = AddressToHash160(strAddress, hash160);
     if (!isValid)
+	{
+		CTransaction tx;
+		vector<unsigned char> vchName = vchFromValue(params[1]);
+		CNameDB dbName("r");
+        if (dbName.ExistsName(vchName))
+		{
+			GetTxOfName(dbName, vchName, tx);
+			GetNameAddress(tx, strAddress);
+        	isValid = AddressToHash160(strAddress, hash160);
+		}
+	}
+
+    if (!isValid)
         throw JSONRPCError(-5, "Invalid namecoin address");
+
     scriptPubKeyOrig.SetBitcoinAddress(strAddress);
     CScript scriptPubKey;
     scriptPubKey << OP_MESSAGE << vchValue << OP_2DROP;
