@@ -70,7 +70,7 @@ ConfigureNameDialog::ConfigureNameDialog(const QString &name_, const QString &da
         // Check conformance to DNS type
         bool ok = true;
         QStringList ns;
-        QString translate, fingerprint;
+        QString translate, tls;
         BOOST_FOREACH(json_spirit::Pair& item, val.get_obj())
         {
             if (item.name_ == "ns")
@@ -98,10 +98,10 @@ ConfigureNameDialog::ConfigureNameDialog(const QString &name_, const QString &da
                 else
                     ok = false;
             }
-            else if (item.name_ == "fingerprint")
+            else if (item.name_ == "tls")
             {
                 if (item.value_.type() == json_spirit::str_type)
-                    fingerprint = QString::fromStdString(item.value_.get_str());
+                    tls = QString::fromStdString(item.value_.get_str());
                 else
                     ok = false;
             }
@@ -118,21 +118,21 @@ ConfigureNameDialog::ConfigureNameDialog(const QString &name_, const QString &da
         {
             ui->nsEdit->setPlainText(ns.join("\n"));
             ui->nsTranslateEdit->setText(translate);
-            ui->nsFingerprintEdit->setText(fingerprint);
+            ui->nsTLSEdit->setText(tls);
             ui->tabWidget->setCurrentWidget(ui->tab_dns);
         }
         else
         {
             // Check conformance to IP type
             json_spirit::Object obj = val.get_obj();
-            QString ip, fingerprint;
+            QString ip, tls;
             json_spirit::Value ipVal = json_spirit::find_value(obj, "ip");
             json_spirit::Value mapVal = json_spirit::find_value(obj, "map");
-            json_spirit::Value fingerprintVal = json_spirit::find_value(obj, "fingerprint");
+            json_spirit::Value tlsVal = json_spirit::find_value(obj, "tls");
             int n = 2;
-            if (fingerprintVal.type() == json_spirit::str_type)
+            if (tlsVal.type() == json_spirit::str_type)
             {
-                fingerprint = QString::fromStdString(fingerprintVal.get_str());
+                tls = QString::fromStdString(tlsVal.get_str());
                 n++;
             }
             if (obj.size() == n && ipVal.type() == json_spirit::str_type && mapVal.type() == json_spirit::obj_type)
@@ -160,7 +160,7 @@ ConfigureNameDialog::ConfigureNameDialog(const QString &name_, const QString &da
             if (ok)
             {
                 ui->ipEdit->setText(ip);
-                ui->ipFingerprintEdit->setText(fingerprint);
+                ui->ipTLSEdit->setText(tls);
                 ui->tabWidget->setCurrentWidget(ui->tab_ip);
             }
             else
@@ -303,9 +303,35 @@ void ConfigureNameDialog::SetDNS()
             translate += ".";
         data.push_back(json_spirit::Pair("translate", translate.toStdString()));
     }
-    QString fingerprint = ui->nsFingerprintEdit->text().trimmed();
-    if (!fingerprint.isEmpty())
-        data.push_back(json_spirit::Pair("fingerprint", fingerprint.toStdString()));
+
+	//TODO create a function to avoid copied code
+	json_spirit::Object tls_protocols;
+	json_spirit::Object tls_ports;
+	json_spirit::Array tls_fingerprints;
+	json_spirit::Array tls_data;
+	
+	QString TLSTypeBox = ui->nsTLSTypeBox->currentText().trimmed();
+	QString TLSProtocolBox = ui->nsTLSProtocolBox->currentText().trimmed();
+    QString TLSEdit = ui->nsTLSEdit->text().trimmed();
+	QString TLSPortEdit = ui->nsTLSPortEdit->text().trimmed();
+	int TLSincludeSubdomainsCheckBox = (int) ui->nsTLSincludeSubdomainsCheckBox->isChecked();
+	if (!TLSEdit.isEmpty() && TLSTypeBox.toStdString() != "None"){
+		
+		if(TLSTypeBox.toStdString() == "SHA256")
+			tls_data.push_back(json_spirit::Value(1));
+		else if (TLSTypeBox.toStdString() == "SHA512")
+			tls_data.push_back(json_spirit::Value(2));
+		
+		tls_data.push_back(json_spirit::Value(TLSEdit.toStdString()));
+		
+		tls_data.push_back(json_spirit::Value(TLSincludeSubdomainsCheckBox));
+		
+		tls_fingerprints.push_back(json_spirit::Value(tls_data));
+		tls_ports.push_back(json_spirit::Pair( TLSPortEdit.toStdString() , tls_fingerprints ));
+		tls_protocols.push_back(json_spirit::Pair( TLSProtocolBox.toStdString() , tls_ports ));
+		
+        data.push_back(json_spirit::Pair("tls", tls_protocols));
+	}
 
     ui->dataEdit->setText(QString::fromStdString(json_spirit::write_string(json_spirit::Value(data), false)));
 }
@@ -314,14 +340,45 @@ void ConfigureNameDialog::SetIP()
 {
     json_spirit::Object data;
     data.push_back(json_spirit::Pair("ip", ui->ipEdit->text().trimmed().toStdString()));
+	
+	//we need to add the data into a map and also directly because without map, we are 
+	//referencing a bare domain and with a wildcard map, we are referencing all subdomains
     json_spirit::Object map, submap;
     submap.push_back(json_spirit::Pair("ip", ui->ipEdit->text().trimmed().toStdString()));
-    map.push_back(json_spirit::Pair("*", submap));
-    data.push_back(json_spirit::Pair("map", map));
-    QString ipFingerprint = ui->ipFingerprintEdit->text().trimmed();
-    if (!ipFingerprint.isEmpty())
-        data.push_back(json_spirit::Pair("fingerprint", ipFingerprint.toStdString()));
 
+	//TODO create a function to avoid copied code
+	json_spirit::Object tls_protocols;
+	json_spirit::Object tls_ports;
+	json_spirit::Array tls_fingerprints;
+	json_spirit::Array tls_data;
+	
+	QString TLSTypeBox = ui->ipTLSTypeBox->currentText().trimmed();
+	QString TLSProtocolBox = ui->ipTLSProtocolBox->currentText().trimmed();
+    QString TLSEdit = ui->ipTLSEdit->text().trimmed();
+	QString TLSPortEdit = ui->ipTLSPortEdit->text().trimmed();
+	int TLSincludeSubdomainsCheckBox = (int) ui->ipTLSincludeSubdomainsCheckBox->isChecked();
+	if (!TLSEdit.isEmpty() && TLSTypeBox.toStdString() != "None"){
+		
+		if(TLSTypeBox.toStdString() == "SHA256")
+			tls_data.push_back(json_spirit::Value(1));
+		else if (TLSTypeBox.toStdString() == "SHA512")
+			tls_data.push_back(json_spirit::Value(2));
+		
+		tls_data.push_back(json_spirit::Value(TLSEdit.toStdString()));
+		
+		tls_data.push_back(json_spirit::Value(TLSincludeSubdomainsCheckBox));
+		
+		tls_fingerprints.push_back(json_spirit::Value(tls_data));
+		tls_ports.push_back(json_spirit::Pair( TLSPortEdit.toStdString() , tls_fingerprints ));
+		tls_protocols.push_back(json_spirit::Pair( TLSProtocolBox.toStdString() , tls_ports ));
+		
+		submap.push_back(json_spirit::Pair("tls", tls_protocols));
+        data.push_back(json_spirit::Pair("tls", tls_protocols));
+	}
+
+	map.push_back(json_spirit::Pair("*", submap));
+    data.push_back(json_spirit::Pair("map", map));
+	
     ui->dataEdit->setText(QString::fromStdString(json_spirit::write_string(json_spirit::Value(data), false)));
 }
 
