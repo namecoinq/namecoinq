@@ -31,9 +31,19 @@ public slots:
     void on_pasteButton_clicked();
     void on_nsEdit_textChanged()                              { if (initialized) SetDNS(); }
     void on_nsTranslateEdit_textChanged(const QString &text)  { if (initialized) SetDNS(); }
-    void on_nsFingerprintEdit_textChanged()                   { if (initialized) SetDNS(); }
+    void on_nsTLSEdit_textChanged()							  { if (initialized) SetDNS(); }
+	void on_nsTLSPortEdit_textChanged()                   	  { if (initialized) SetDNS(); }
+	void on_nsTLSProtocolBox_currentIndexChanged()            { if (initialized) SetDNS(); }
+	void on_nsTLSTypeBox_currentIndexChanged()                { if (initialized) SetDNS(); }
+	void on_nsTLSincludeSubdomainsCheckBox_stateChanged()     { if (initialized) SetDNS(); }
+
     void on_ipEdit_textChanged(const QString &text)           { if (initialized) SetIP();  }
-    void on_ipFingerprintEdit_textChanged()                   { if (initialized) SetIP(); }
+    void on_ipTLSEdit_textChanged()                   		  {	if (initialized) SetIP(); }
+	void on_ipTLSPortEdit_textChanged()                   	  { if (initialized) SetIP(); }
+	void on_ipTLSProtocolBox_currentIndexChanged()            { if (initialized) SetIP(); }
+	void on_ipTLSTypeBox_currentIndexChanged()                { if (initialized) SetIP(); }
+	void on_ipTLSincludeSubdomainsCheckBox_stateChanged()     { if (initialized) SetIP(); }	
+	
     void on_dataEdit_textChanged(const QString &text);
 
 private:
