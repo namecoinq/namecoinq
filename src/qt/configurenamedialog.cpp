@@ -340,9 +340,11 @@ void ConfigureNameDialog::SetIP()
 {
     json_spirit::Object data;
     data.push_back(json_spirit::Pair("ip", ui->ipEdit->text().trimmed().toStdString()));
-	//disable adding map because it only makes sense to add map when subdomains are actually specified
-    //json_spirit::Object map, submap;
-    //submap.push_back(json_spirit::Pair("ip", ui->ipEdit->text().trimmed().toStdString()));
+	
+	//we need to add the data into a map and also directly because without map, we are 
+	//referencing a bare domain and with a wildcard map, we are referencing all subdomains
+    json_spirit::Object map, submap;
+    submap.push_back(json_spirit::Pair("ip", ui->ipEdit->text().trimmed().toStdString()));
 
 	//TODO create a function to avoid copied code
 	json_spirit::Object tls_protocols;
@@ -370,12 +372,12 @@ void ConfigureNameDialog::SetIP()
 		tls_ports.push_back(json_spirit::Pair( TLSPortEdit.toStdString() , tls_fingerprints ));
 		tls_protocols.push_back(json_spirit::Pair( TLSProtocolBox.toStdString() , tls_ports ));
 		
-		//submap.push_back(json_spirit::Pair("tls", tls_protocols));
+		submap.push_back(json_spirit::Pair("tls", tls_protocols));
         data.push_back(json_spirit::Pair("tls", tls_protocols));
 	}
 
-	//map.push_back(json_spirit::Pair("*", submap));
-    //data.push_back(json_spirit::Pair("map", map));
+	map.push_back(json_spirit::Pair("*", submap));
+    data.push_back(json_spirit::Pair("map", map));
 	
     ui->dataEdit->setText(QString::fromStdString(json_spirit::write_string(json_spirit::Value(data), false)));
 }
